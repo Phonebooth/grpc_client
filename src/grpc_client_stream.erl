@@ -298,10 +298,18 @@ add_metadata(Headers, Metadata) ->
 info_response(Response, #{response_pending := true,
                           client := Client} = Stream) ->
     gen_server:reply(Client, Response),
-    {noreply, Stream#{response_pending => false}};
+    continue_if_buffer(Stream#{response_pending => false});
 info_response(Response, #{queue := Queue} = Stream) ->
     NewQueue = queue:in(Response, Queue),
-    {noreply, Stream#{queue => NewQueue}}.
+    continue_if_buffer(Stream#{queue => NewQueue}).
+
+continue_if_buffer(#{buffer := <<_:8, Size:32, _:Size/binary, _/binary>> = Buffer,
+                     stream_id := StreamId} = Stream) ->
+    self() ! {'RECV_DATA', StreamId, Buffer},
+    {noreply, Stream#{buffer => <<>>}};
+continue_if_buffer(Stream) ->
+    {noreply, Stream}.
+
 
 %% TODO: fix the error handling, currently it is very hard to understand the
 %% error that results from a bad message (Map).
