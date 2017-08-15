@@ -305,8 +305,8 @@ info_response(Response, #{queue := Queue} = Stream) ->
 
 continue_if_buffer(#{buffer := <<_:8, Size:32, _:Size/binary, _/binary>> = Buffer,
                      stream_id := StreamId} = Stream) ->
-    self() ! {'RECV_DATA', StreamId, Buffer},
-    {noreply, Stream#{buffer => <<>>}};
+    %% call handle_info directly, sending a message risks screwing up the buffer
+    handle_info({'RECV_DATA', StreamId, Buffer, false, false}, Stream#{buffer => <<>>});
 continue_if_buffer(Stream) ->
     {noreply, Stream}.
 
