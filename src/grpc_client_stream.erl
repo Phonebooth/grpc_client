@@ -99,9 +99,21 @@ handle_call(state, _From, #{state := State} = Stream) ->
 handle_call({stop, ErrorCode}, _From, Stream) ->
     {stop, normal, ok, rst_stream(Stream, ErrorCode)};
 handle_call({send_last, Message}, _From, Stream) ->
-    {reply, ok, send_msg(Stream, Message, true)};
+    case send_msg(Stream, Message, true) of
+        ErrorReply={reply, {error, {flow_control, _}}, _Stream2} ->
+            ErrorReply;
+        GoodReply={reply, ok, _Stream2} ->
+            GoodReply
+    %% otherwise, crash on purpose
+    end;
 handle_call({send, Message}, _From, Stream) ->
-    {reply, ok, send_msg(Stream, Message, false)};
+    case send_msg(Stream, Message, false) of
+        ErrorReply={reply, {error, {flow_control, _}}, _Stream2} ->
+            ErrorReply;
+        GoodReply={reply, ok, _Stream2} ->
+            GoodReply
+    %% otherwise, crash on purpose
+    end;
 handle_call(get, _From, #{queue := Queue,
                           state := StreamState} = Stream) ->
     {Value, NewQueue} = queue:out(Queue),
@@ -234,30 +246,35 @@ send_msg(#{stream_id := StreamId,
            state := State
           } = Stream, Message, EndStream) ->
     Encoded = encode(Stream, Message),
-    case HeadersSent of
+    HeaderResult = case HeadersSent of
         false ->
             DefaultHeaders = default_headers(Stream),
             AllHeaders = add_metadata(DefaultHeaders, Metadata),
-            ok = grpc_client_connection:send_headers(Connection, StreamId, AllHeaders);
+            grpc_client_connection:send_headers(Connection, StreamId, AllHeaders);
         true ->
             ok
     end,
-    Opts = [{end_stream, EndStream}],
-    NewState = 
-        case {EndStream, State} of
-            {false, _} when State == idle ->
-                open;
-            {false, _} ->
-                State;
-            {true, _} when State == open;
-                           State == idle ->
-                half_closed_local;
-            {true, _} ->
-                closed
-        end,
-    ok = grpc_client_connection:send_body(Connection, StreamId, Encoded, Opts),
-    Stream#{headers_sent => true,
-            state => NewState}.
+    case HeaderResult of
+        {error, _Reason}=Error ->
+            {reply, Error, Stream};
+        ok ->
+            Opts = [{end_stream, EndStream}],
+            NewState = 
+            case {EndStream, State} of
+                {false, _} when State == idle ->
+                    open;
+                {false, _} ->
+                    State;
+                {true, _} when State == open;
+                               State == idle ->
+                    half_closed_local;
+                {true, _} ->
+                    closed
+            end,
+            Reply = grpc_client_connection:send_body(Connection, StreamId, Encoded, Opts),
+            {reply, Reply, Stream#{headers_sent => true,
+                                   state => NewState}}
+    end.
 
 rst_stream(#{connection := Connection,
              stream_id := StreamId} = Stream, ErrorCode) ->
