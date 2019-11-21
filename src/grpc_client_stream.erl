@@ -16,7 +16,7 @@
 -export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, init/1, terminate/2]).
 
 -type stream() ::
-    #{stream_id := integer(),
+    #{stream_id := integer() | undefined,
       package := string(),
       service := string(),
       rpc := string(),
@@ -81,7 +81,12 @@ call_rpc(Pid, Message, Timeout) ->
 %% @private
 init({Connection, Service, Rpc, Encoder, Options}) ->
     try 
-        {ok, new_stream(Connection, Service, Rpc, Encoder, Options)}
+        case proplists:get_value(with_headers, Options, false) of
+            true ->
+                {ok, new_stream_with_headers(Connection, Service, Rpc, Encoder, Options)};
+            false ->
+                {ok, new_stream(Connection, Service, Rpc, Encoder, Options)}
+        end
     catch
         _Class:_Error ->
             {stop, <<"failed to create stream">>}
@@ -238,6 +243,36 @@ new_stream(Connection, Service, Rpc, Encoder, Options) ->
             metadata => Metadata,
             compression => Compression,
             buffer => <<>>}.
+
+new_stream_with_headers(Connection, Service, Rpc, Encoder, Options) ->
+    Compression = proplists:get_value(compression, Options, none),
+    Metadata = proplists:get_value(metadata, Options, #{}),
+    TransportOptions = proplists:get_value(http2_options, Options, []),
+
+    Package = Encoder:get_package_name(),
+    RpcDef = Encoder:find_rpc_def(Service, Rpc),
+    %% the gpb rpc def has 'input', 'output' etc.
+    %% All the information is combined in 1 map, 
+    %% which is is the state of the gen_server.
+    Stream = RpcDef#{stream_id => undefined,
+            package => [atom_to_list(Package),$.],
+            service => Service,
+            rpc => Rpc,
+            queue => queue:new(),
+            response_pending => false,
+            state => idle,
+            encoder => Encoder,
+            connection => Connection,
+            headers_sent => false,
+            metadata => Metadata,
+            compression => Compression,
+            buffer => <<>>},
+    DefaultHeaders = default_headers(Stream),
+    AllHeaders = add_metadata(DefaultHeaders, Metadata),
+    {ok, StreamId} = grpc_client_connection:new_stream_with_headers(Connection, AllHeaders, TransportOptions),
+    Stream#{stream_id => StreamId,
+            headers_sent => true,
+            state => open}.
 
 send_msg(#{stream_id := StreamId,
            connection := Connection,

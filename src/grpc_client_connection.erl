@@ -9,6 +9,7 @@
          stop/1,
          new_stream/1,
          new_stream/2,
+         new_stream_with_headers/3,
          rst_stream/3,
          send_headers/3,
          send_body/4,
@@ -56,6 +57,10 @@ new_stream(Connection) ->
 new_stream(#{http_connection := Pid,
             client := Client}, Options) ->
     Client:new_stream(Pid, Options).
+
+new_stream_with_headers(#{http_connection := Pid,
+            client := Client}, Headers, Options) ->
+    Client:new_stream_with_headers(Pid, Headers, Options).
 
 rst_stream(#{http_connection := Pid, client := Client}, StreamId, ErrorCode) ->
     Client:rst_stream(Pid, StreamId, ErrorCode).
