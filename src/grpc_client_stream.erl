@@ -81,7 +81,7 @@ call_rpc(Pid, Message, Timeout) ->
 %% @private
 init({Connection, Service, Rpc, Encoder, Options}) ->
     try 
-        case proplists:get_value(with_headers, Options, false) of
+        case proplists:get_value(with_headers, Options, true) of
             true ->
                 {ok, new_stream_with_headers(Connection, Service, Rpc, Encoder, Options)};
             false ->
