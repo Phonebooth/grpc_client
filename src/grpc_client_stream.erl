@@ -274,6 +274,8 @@ new_stream_with_headers(Connection, Service, Rpc, Encoder, Options) ->
             headers_sent => true,
             state => open}.
 
+send_msg(#{state := half_closed_local}=Stream, _, _) ->
+    {reply, ok, Stream};
 send_msg(#{stream_id := StreamId,
            connection := Connection,
            headers_sent := HeadersSent,
